@@ -1,7 +1,9 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-import random
+import openpyxl
+from openpyxl import Workbook
+from io import BytesIO
 
 # Initialize session state
 if 'uploaded_file' not in st.session_state:
@@ -14,32 +16,29 @@ st.set_page_config(page_title="VIBER BLAST UPLOADER", page_icon="📊", layout="
 st.markdown(
     """
     <style>
-    /* Monochromatic theme (refined grays) */
     .main-content {
         padding: 20px;
-        background-color: #f5f5f5; /* Lighter gray */
+        background-color: #f5f5f5;
         border-radius: 10px;
         box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-        color: #2b2b2b; /* Darker gray text */
+        color: #2b2b2b;
         margin-bottom: 20px;
     }
-    /* Button styling */
     .stButton > button {
         width: 100%;
         margin-bottom: 10px;
-        background-color: #b0b0b0; /* Medium gray */
-        color: #2b2b2b; /* Darker text */
+        background-color: #b0b0b0;
+        color: #2b2b2b;
         border: none;
         border-radius: 5px;
         box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
         transition: all 0.2s ease;
     }
     .stButton > button:hover {
-        background-color: #909090; /* Darker gray on hover */
+        background-color: #909090;
         transform: scale(1.05);
         box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
     }
-    /* Download button styling */
     .stDownloadButton > button {
         background-color: #b0b0b0;
         color: #2b2b2b;
@@ -52,18 +51,15 @@ st.markdown(
         transform: scale(1.05);
         box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
     }
-    /* Center title */
     h1 {
         text-align: center;
         color: #2b2b2b;
     }
-    /* Dataframe styling */
     .stDataFrame {
         border: 1px solid #d0d0d0;
         border-radius: 5px;
         background-color: #ffffff;
     }
-    /* Footer */
     .footer {
         text-align: center;
         color: #666666;
@@ -74,10 +70,6 @@ st.markdown(
     """,
     unsafe_allow_html=True
 )
-
-
-
-
 
 # Main content
 with st.container():
@@ -128,11 +120,12 @@ with st.container():
                 df["Contact No."] = df["Contact No."].astype(str).str.strip().replace("nan", "")
                 df["Account No."] = df["Account No."].astype(str).str.strip().replace("nan", "")
                 
-                # Check for invalid Contact No.
-                invalid_contact_no = df[df["Contact No."].str.len() != 11]
-                if not invalid_contact_no.empty:
-                    st.warning(f"Found {len(invalid_contact_no)} rows where Contact No. is not 11 digits. These rows are still included but may need review.")
-                
+                # Filter out rows where Contact No. is not 11 digits
+                initial_row_count = len(df)
+                df = df[df["Contact No."].str.len() == 11]
+                removed_rows = initial_row_count - len(df)
+                if removed_rows > 0:
+                    st.info(f"Removed {removed_rows} rows where Contact No. is not exactly 11 digits.")
                 
                 # Remove duplicates based on Account No.
                 initial_row_count = len(df)
@@ -162,14 +155,35 @@ with st.container():
                 st.subheader("Summary Table")
                 st.dataframe(summary_df, use_container_width=True)
                 
-                # Download button for summary table (CSV UTF-8 with BOM)
-                csv_content = summary_df.to_csv(index=False)
-                csv_with_bom = '\ufeff' + csv_content  # Add UTF-8 BOM
+                # Create Excel file with openpyxl
+                output = BytesIO()
+                wb = Workbook()
+                ws = wb.active
+                ws.title = "Viber Blast"
+                
+                # Write headers
+                headers = list(summary_df.columns)
+                for col_num, header in enumerate(headers, 1):
+                    ws.cell(row=1, column=col_num).value = header
+                
+                # Write data
+                for row_num, row in enumerate(summary_df.values, 2):
+                    for col_num, value in enumerate(row, 1):
+                        ws.cell(row=row_num, column=col_num).value = value
+                        # Set Mobile Number and CH Code columns to text format
+                        if headers[col_num-1] in ["Mobile Number", "CH Code"]:
+                            ws.cell(row=row_num, column=col_num).number_format = '@'
+                
+                # Save to BytesIO
+                wb.save(output)
+                output.seek(0)
+                
+                # Download button for Excel file
                 st.download_button(
-                    label="📥 Download Summary Table as CSV",
-                    data=csv_with_bom.encode('utf-8'),
-                    file_name=f"{current_date}.csv",
-                    mime="text/csv",
+                    label="📥 Download Summary Table as Excel",
+                    data=output,
+                    file_name=f"{current_date}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     key="download_summary"
                 )
                 
@@ -179,14 +193,26 @@ with st.container():
         # Display sample data if no file is uploaded
         st.subheader("Sample Summary Table")
         st.dataframe(sample_df, use_container_width=True)
-        # Download button for sample data (CSV UTF-8 with BOM)
-        csv_content = sample_df.to_csv(index=False)
-        csv_with_bom = '\ufeff' + csv_content  # Add UTF-8 BOM
+        # Download button for sample data (Excel)
+        output = BytesIO()
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Viber Blast"
+        headers = list(sample_df.columns)
+        for col_num, header in enumerate(headers, 1):
+            ws.cell(row=1, column=col_num).value = header
+        for row_num, row in enumerate(sample_df.values, 2):
+            for col_num, value in enumerate(row, 1):
+                ws.cell(row=row_num, column=col_num).value = value
+                if headers[col_num-1] in ["Mobile Number", "CH Code"]:
+                    ws.cell(row=row_num, column=col_num).number_format = '@'
+        wb.save(output)
+        output.seek(0)
         st.download_button(
             label="📥 Download",
-            data=csv_with_bom.encode('utf-8'),
-            file_name=f"{current_date}.csv",
-            mime="text/csv",
+            data=output,
+            file_name=f"{current_date}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             key="download_sample"
         )
         st.info("Please upload a CSV file to generate the summary table with your data.")
@@ -194,4 +220,4 @@ with st.container():
     st.markdown('</div>', unsafe_allow_html=True)
 
 # Footer
-st.markdown('<div class="footer">Viber Blast Uploader | Version 1.0 | May 27, 2025 05:20 PM PST</div>', unsafe_allow_html=True)
+st.markdown(f'<div class="footer">Viber Blast Uploader | Version 1.0 | {datetime.now().strftime("%b %d, %Y %I:%M %p PST")}</div>', unsafe_allow_html=True)
