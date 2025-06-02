@@ -116,16 +116,19 @@ with st.container():
             if missing_columns:
                 st.error(f"The following required columns are missing: {', '.join(missing_columns)}")
             else:
-                # Process Contact No. and Account No.
-                df["Contact No."] = df["Contact No."].astype(str).str.strip().replace("nan", "")
-                df["Account No."] = df["Account No."].astype(str).str.strip().replace("nan", "")
+                # Clean and process Contact No. and Account No.
+                df["Contact No."] = df["Contact No."].astype(str).str.strip().replace({"nan": "", "NaN": ""})
+                df["Account No."] = df["Account No."].astype(str).str.strip().replace({"nan": "", "NaN": ""})
                 
-                # Filter out rows where Contact No. is not 11 digits
+                # Filter rows where Contact No. is exactly 11 digits and numeric
                 initial_row_count = len(df)
-                df = df[df["Contact No."].str.len() == 11]
+                df["is_valid_contact"] = df["Contact No."].apply(lambda x: x.isdigit() and len(x) == 11)
+                df = df[df["is_valid_contact"]].drop(columns=["is_valid_contact"])
                 removed_rows = initial_row_count - len(df)
                 if removed_rows > 0:
-                    st.info(f"Removed {removed_rows} rows where Contact No. is not exactly 11 digits.")
+                    st.info(f"Removed {removed_rows} rows where Contact No. is not exactly 11 digits or contains non-numeric characters.")
+                else:
+                    st.info("All rows have valid 11-digit Contact No. values.")
                 
                 # Remove duplicates based on Account No.
                 initial_row_count = len(df)
@@ -136,20 +139,18 @@ with st.container():
                 # Check if any rows remain
                 if len(df) == 0:
                     st.warning("No rows remain after filtering. Showing sample data only.")
-                
-                # Create summary table
-                summary_df = pd.DataFrame({
-                    "Campaign": df["Client"],
-                    "CH Code": df["Account No."],
-                    "First Name": [""] * len(df),
-                    "Full Name": df["Debtor Name"],
-                    "Last Name": [""] * len(df),
-                    "Mobile Number": df["Contact No."],
-                    "OB": [""] * len(df)
-                })
-                
-                # Concatenate with sample data
-                summary_df = pd.concat([summary_df, sample_df], ignore_index=True)
+                    summary_df = sample_df
+                else:
+                    # Create summary table
+                    summary_df = pd.DataFrame({
+                        "Campaign": df["Client"],
+                        "CH Code": df["Account No."],
+                        "First Name": [""] * len(df),
+                        "Full Name": df["Debtor Name"],
+                        "Last Name": [""] * len(df),
+                        "Mobile Number": df["Contact No."],
+                        "OB": [""] * len(df)
+                    })
                 
                 # Display summary table
                 st.subheader("Summary Table")
@@ -169,7 +170,7 @@ with st.container():
                 # Write data
                 for row_num, row in enumerate(summary_df.values, 2):
                     for col_num, value in enumerate(row, 1):
-                        ws.cell(row=row_num, column=col_num).value = value
+                        ws.cell(row=row_num, column=col_num).value = str(value)  # Convert to string to avoid type issues
                         # Set Mobile Number and CH Code columns to text format
                         if headers[col_num-1] in ["Mobile Number", "CH Code"]:
                             ws.cell(row=row_num, column=col_num).number_format = '@'
@@ -203,7 +204,7 @@ with st.container():
             ws.cell(row=1, column=col_num).value = header
         for row_num, row in enumerate(sample_df.values, 2):
             for col_num, value in enumerate(row, 1):
-                ws.cell(row=row_num, column=col_num).value = value
+                ws.cell(row=row_num, column=col_num).value = str(value)
                 if headers[col_num-1] in ["Mobile Number", "CH Code"]:
                     ws.cell(row=row_num, column=col_num).number_format = '@'
         wb.save(output)
