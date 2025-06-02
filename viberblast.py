@@ -108,6 +108,7 @@ with st.container():
         try:
             # Read the CSV file
             df = pd.read_csv(st.session_state.uploaded_file)
+            st.write(f"Initial rows in CSV: {len(df)}")
             
             # Check for required columns
             required_columns = ["Client", "Account No.", "Debtor Name", "Contact No."]
@@ -117,18 +118,21 @@ with st.container():
                 st.error(f"The following required columns are missing: {', '.join(missing_columns)}")
             else:
                 # Clean and process Contact No. and Account No.
-                df["Contact No."] = df["Contact No."].astype(str).str.strip().replace({"nan": "", "NaN": ""})
+                df["Contact No."] = df["Contact No."].astype(str).str.strip().str.replace(r'\D+', '', regex=True)
                 df["Account No."] = df["Account No."].astype(str).str.strip().replace({"nan": "", "NaN": ""})
                 
-                # Filter rows where Contact No. is exactly 11 digits and numeric
+                # Filter rows where Contact No. is exactly 11 digits
                 initial_row_count = len(df)
                 df["is_valid_contact"] = df["Contact No."].apply(lambda x: x.isdigit() and len(x) == 11)
+                invalid_contacts = df[~df["is_valid_contact"]][["Contact No."]].drop_duplicates()
+                if not invalid_contacts.empty:
+                    st.warning(f"Invalid Contact No. values (non-11-digit or non-numeric):\n{invalid_contacts.to_string()}")
                 df = df[df["is_valid_contact"]].drop(columns=["is_valid_contact"])
                 removed_rows = initial_row_count - len(df)
                 if removed_rows > 0:
-                    st.info(f"Removed {removed_rows} rows where Contact No. is not exactly 11 digits or contains non-numeric characters.")
+                    st.info(f"Removed {removed_rows} rows where Contact No. is not exactly 11 digits.")
                 else:
-                    st.info("All rows have valid 11-digit Contact No. values.")
+                    st.info("All Contact No. values are valid (11 digits).")
                 
                 # Remove duplicates based on Account No.
                 initial_row_count = len(df)
@@ -143,17 +147,18 @@ with st.container():
                 else:
                     # Create summary table
                     summary_df = pd.DataFrame({
-                        "Campaign": df["Client"],
-                        "CH Code": df["Account No."],
+                        "Campaign": df["Client"].astype(str),
+                        "CH Code": df["Account No."].astype(str),
                         "First Name": [""] * len(df),
-                        "Full Name": df["Debtor Name"],
+                        "Full Name": df["Debtor Name"].astype(str),
                         "Last Name": [""] * len(df),
-                        "Mobile Number": df["Contact No."],
+                        "Mobile Number": df["Contact No."].astype(str),
                         "OB": [""] * len(df)
                     })
                 
                 # Display summary table
                 st.subheader("Summary Table")
+                st.write(f"Rows in summary table: {len(summary_df)}")
                 st.dataframe(summary_df, use_container_width=True)
                 
                 # Create Excel file with openpyxl
@@ -170,7 +175,7 @@ with st.container():
                 # Write data
                 for row_num, row in enumerate(summary_df.values, 2):
                     for col_num, value in enumerate(row, 1):
-                        ws.cell(row=row_num, column=col_num).value = str(value)  # Convert to string to avoid type issues
+                        ws.cell(row=row_num, column=col_num).value = str(value)
                         # Set Mobile Number and CH Code columns to text format
                         if headers[col_num-1] in ["Mobile Number", "CH Code"]:
                             ws.cell(row=row_num, column=col_num).number_format = '@'
